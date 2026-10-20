@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我が家×ネット節約 レシピ＆献立ナビ</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+<body class="bg-amber-50/40 text-gray-800 min-h-screen pb-20" x-data="recipeApp()">
+
+  <!-- ヘッダー -->
+  <header class="bg-amber-500 text-white shadow-md sticky top-0 z-50">
+    <div class="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
+      <h1 class="font-bold text-lg flex items-center gap-2">
+        <i class="fa-solid fa-utensils"></i> 我が家×節約レシピナビ
+      </h1>
+      <button x-show="enableRakutenApi" x-cloak @click="showApiModal = true" class="text-xs bg-amber-600 hover:bg-amber-700 px-2.5 py-1.5 rounded-full flex items-center gap-1 transition">
+        <i class="fa-solid fa-key"></i> 楽天API設定
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-md mx-auto px-4 pt-4 space-y-5">
+
+    <!-- 検索バー -->
+    <section class="bg-white p-3 rounded-2xl shadow-sm border border-amber-100">
+      <div class="flex gap-2">
+        <input 
+          type="text" 
+          x-model="searchKeyword" 
+          @keyup.enter="searchRecipes()"
+          placeholder="食材を入力 (例: 胸肉, 豆腐, もやし)" 
+          class="flex-1 bg-gray-50 border border-gray-200 text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+        >
+        <button 
+          @click="searchRecipes()" 
+          class="bg-amber-500 text-white px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-amber-600 transition flex items-center justify-center min-w-[60px]"
+        >
+          <span x-show="!isSearching"><i class="fa-solid fa-magnifying-glass"></i></span>
+          <span x-show="isSearching" x-cloak><i class="fa-solid fa-spinner animate-spin"></i></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- クイックアクション：献立ガチャ -->
+    <section class="bg-gradient-to-r from-amber-500 to-orange-500 text-white p-4 rounded-2xl shadow-md relative overflow-hidden">
+      <div class="relative z-10">
+        <h2 class="font-bold text-base mb-1 flex items-center gap-2">
+          <i class="fa-solid fa-dice"></i> 今日の献立ガチャ
+        </h2>
+        <p class="text-xs text-amber-100 mb-3">我が家＆ネットから主菜・副菜・汁物をランダム提案！</p>
+        <button 
+          @click="generateRandomMenu()" 
+          class="w-full bg-white text-amber-600 font-bold py-2.5 rounded-xl text-sm shadow hover:bg-amber-50 active:scale-[0.98] transition"
+        >
+          🎲 献立をランダム作成
+        </button>
+      </div>
+    </section>
+
+    <!-- タブ切り替え -->
+    <div class="flex border-b border-gray-200 text-sm font-medium">
+      <button 
+        @click="activeTab = 'recipes'" 
+        :class="activeTab === 'recipes' ? 'border-b-2 border-amber-500 text-amber-600' : 'text-gray-400'"
+        class="flex-1 py-2.5 text-center transition"
+      >
+        <i class="fa-solid fa-book-open mr-1"></i> レシピ一覧 (<span x-text="filteredRecipes.length"></span>)
+      </button>
+      <button 
+        @click="activeTab = 'menu'" 
+        :class="activeTab === 'menu' ? 'border-b-2 border-amber-500 text-amber-600' : 'text-gray-400'"
+        class="flex-1 py-2.5 text-center relative transition"
+      >
+        <i class="fa-solid fa-calendar-check mr-1"></i> 今日の献立 
+        <span x-show="selectedMenu.length > 0" class="ml-1 bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full" x-text="selectedMenu.length"></span>
+      </button>
+      <button 
+        @click="activeTab = 'shopping'" 
+        :class="activeTab === 'shopping' ? 'border-b-2 border-amber-500 text-amber-600' : 'text-gray-400'"
+        class="flex-1 py-2.5 text-center transition"
+      >
+        <i class="fa-solid fa-cart-shopping mr-1"></i> 買い物リスト
+      </button>
+    </div>
+
+    <!-- Tab 1: レシピ一覧 -->
+    <div x-show="activeTab === 'recipes'" class="space-y-3">
+      <!-- フィルタータグ -->
+      <div class="flex gap-1.5 overflow-x-auto pb-1 text-xs">
+        <button @click="filterTag = 'ALL'" :class="filterTag === 'ALL' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border'" class="px-3 py-1 rounded-full whitespace-nowrap">すべて</button>
+        <button @click="filterTag = 'HOME'" :class="filterTag === 'HOME' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border'" class="px-3 py-1 rounded-full whitespace-nowrap">🏠 我が家</button>
+        <button @click="filterTag = 'SAMPLE'" :class="filterTag === 'SAMPLE' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border'" class="px-3 py-1 rounded-full whitespace-nowrap">📋 サンプル</button>
+        <button @click="filterTag = 'NET'" :class="filterTag === 'NET' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border'" class="px-3 py-1 rounded-full whitespace-nowrap">🌐 ネット(楽天)</button>
+        <button @click="filterTag = '節約'" :class="filterTag === '節約' ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border'" class="px-3 py-1 rounded-full whitespace-nowrap">💰 超節約</button>
+      </div>
+
+      <!-- レシピカードリスト -->
+      <template x-for="recipe in filteredRecipes" :key="recipe.id">
+        <div @click="openRecipe(recipe)" class="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-3 relative cursor-pointer hover:shadow-md transition">
+          <img :src="recipe.image" :alt="recipe.title" class="w-24 h-24 rounded-xl object-cover flex-shrink-0 bg-gray-100">
+          <div class="flex-1 min-w-0 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center gap-1.5 mb-1">
+                <span x-show="recipe.isHome" class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🏠 我が家</span>
+                <span x-show="recipe.isSample" class="bg-gray-100 text-gray-600 text-[10px] font-bold px-1.5 py-0.5 rounded">📋 サンプル</span>
+                <span x-show="!recipe.isHome && !recipe.isSample" class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🌐 ネット</span>
+                <span class="text-[10px] text-gray-400" x-text="recipe.category"></span>
+              </div>
+              <h3 class="font-bold text-sm text-gray-800 line-clamp-1" x-text="recipe.title"></h3>
+              <p class="text-xs text-gray-500 mt-1 line-clamp-1" x-text="recipe.ingredients.join(', ')"></p>
+            </div>
+            
+            <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
+              <span class="text-xs font-bold text-amber-600" x-text="recipe.cost"></span>
+              <button 
+                @click.stop="toggleMenuSelection(recipe)" 
+                :class="isInMenu(recipe.id) ? 'bg-gray-100 text-gray-500' : 'bg-amber-500 text-white'"
+                class="text-xs px-2.5 py-1 rounded-lg font-medium transition"
+              >
+                <span x-text="isInMenu(recipe.id) ? '解除' : '+ 献立に追加'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- Tab 2: 今日の献立 -->
+    <div x-show="activeTab === 'menu'" class="space-y-3" x-cloak>
+      <div class="flex justify-between items-center">
+        <h2 class="font-bold text-sm text-gray-700">選択したメニュー</h2>
+        <button @click="selectedMenu = []; saveState()" class="text-xs text-red-400 hover:underline">クリア</button>
+      </div>
+
+      <template x-if="selectedMenu.length === 0">
+        <div class="text-center py-10 bg-white rounded-2xl border border-dashed text-gray-400 text-xs">
+          献立がまだ選ばれていません。<br>レシピ一覧から追加するか、ガチャをお試しください！
+        </div>
+      </template>
+
+      <div class="space-y-2">
+        <template x-for="item in selectedMenu" :key="item.id">
+          <div @click="openRecipe(item)" class="bg-white p-3 rounded-xl border flex items-center justify-between cursor-pointer hover:shadow-md transition">
+            <div class="flex items-center gap-3">
+              <img :src="item.image" class="w-12 h-12 rounded-lg object-cover">
+              <div>
+                <span class="text-[10px] text-amber-600 font-bold" x-text="item.category"></span>
+                <h4 class="font-bold text-sm" x-text="item.title"></h4>
+              </div>
+            </div>
+            <button @click.stop="toggleMenuSelection(item)" class="text-gray-300 hover:text-red-500 p-2"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+        </template>
+      </div>
+
+      <button 
+        x-show="selectedMenu.length > 0"
+        @click="generateShoppingList(); activeTab = 'shopping'"
+        class="w-full bg-amber-500 text-white font-bold py-3 rounded-xl text-sm shadow hover:bg-amber-600 transition mt-4"
+      >
+        🛒 この献立で買い物リストを作成
+      </button>
+    </div>
+
+    <!-- Tab 3: 買い物リスト -->
+    <div x-show="activeTab === 'shopping'" class="space-y-3" x-cloak>
+      <div class="flex justify-between items-center">
+        <h2 class="font-bold text-sm text-gray-700">必要食材リスト</h2>
+        <button @click="shoppingList = []" class="text-xs text-gray-400 hover:underline">リセット</button>
+      </div>
+
+      <template x-if="shoppingList.length === 0">
+        <div class="text-center py-10 bg-white rounded-2xl border border-dashed text-gray-400 text-xs">
+          献立タブから「買い物リストを作成」を押すと、<br>必要な材料がここに自動でまとまります！
+        </div>
+      </template>
+
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 space-y-2">
+        <template x-for="(item, index) in shoppingList" :key="index">
+          <label class="flex items-center gap-3 py-2 border-b border-gray-50 last:border-none cursor-pointer">
+            <input type="checkbox" x-model="item.checked" class="w-4 h-4 text-amber-500 rounded border-gray-300 focus:ring-amber-400">
+            <span :class="item.checked ? 'line-through text-gray-300' : 'text-gray-700'" class="text-sm font-medium" x-text="item.name"></span>
+          </label>
+        </template>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="max-w-md mx-auto px-4 pt-2 pb-4 text-center text-[10px] text-gray-400">
+    サンプル画像: Unsplash / Wikimedia Commons（<a href="README.md" class="underline hover:text-amber-600">クレジット</a>）
+  </footer>
+
+  <!-- APIキー設定モータル -->
+  <div x-show="showApiModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" x-cloak>
+    <div class="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4">
+      <h3 class="font-bold text-base text-gray-800">楽天レシピAPI設定</h3>
+      <p class="text-xs text-gray-500">楽天デベロッパーで取得したアプリIDを設定すると、リアルタイムでネットの節約レシピを自動検索できるようになります。</p>
+      <input type="text" x-model="rakutenAppId" placeholder="10xxxxxxxxxxxxxxxxx" class="w-full border rounded-xl px-3 py-2 text-sm">
+      <div class="flex gap-2">
+        <button @click="saveApiId()" class="flex-1 bg-amber-500 text-white text-sm py-2 rounded-xl font-bold">保存</button>
+        <button @click="showApiModal = false" class="bg-gray-100 text-gray-600 text-sm px-4 py-2 rounded-xl">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- レシピ詳細モーダル -->
+  <template x-if="selectedRecipe">
+    <div class="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center sm:p-4" @click="selectedRecipe = null">
+      <div class="bg-white w-full max-w-md max-h-[92vh] rounded-t-3xl sm:rounded-2xl overflow-y-auto shadow-xl" @click.stop>
+        <div class="relative">
+          <img :src="selectedRecipe.image" :alt="selectedRecipe.title" :class="selectedRecipe.isHome ? 'object-contain bg-amber-50' : 'object-cover bg-gray-100'" class="w-full h-44">
+          <button @click="selectedRecipe = null" class="absolute top-3 right-3 bg-black/50 hover:bg-black/70 text-white w-8 h-8 rounded-full flex items-center justify-center transition">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+          <span class="absolute left-3 bottom-3 bg-white/95 text-amber-700 text-xs font-bold px-2.5 py-1 rounded-full" x-text="selectedRecipe.category"></span>
+        </div>
+        <div class="p-5 space-y-5">
+          <div>
+            <h3 class="text-lg font-bold text-gray-800 leading-snug" x-text="selectedRecipe.title"></h3>
+            <div class="flex items-center gap-2 mt-2">
+              <span x-show="selectedRecipe.isHome" class="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🏠 我が家</span>
+              <span x-show="selectedRecipe.isSample" class="bg-gray-100 text-gray-600 text-[10px] font-bold px-1.5 py-0.5 rounded">📋 サンプル</span>
+              <span x-show="!selectedRecipe.isHome && !selectedRecipe.isSample" class="bg-blue-100 text-blue-800 text-[10px] font-bold px-1.5 py-0.5 rounded">🌐 ネット</span>
+              <span class="text-sm font-bold text-amber-600" x-text="selectedRecipe.cost"></span>
+            </div>
+          </div>
+
+          <div>
+            <h4 class="font-bold text-sm text-gray-700 mb-2 flex items-center gap-1.5">
+              <i class="fa-solid fa-basket-shopping text-amber-500"></i> 材料
+            </h4>
+            <ul class="bg-amber-50/70 rounded-xl p-3 space-y-1.5">
+              <template x-for="(ing, index) in selectedRecipe.ingredients" :key="index">
+                <li class="text-sm text-gray-700 flex gap-2">
+                  <span class="text-amber-500">・</span><span x-text="ing"></span>
+                </li>
+              </template>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="font-bold text-sm text-gray-700 mb-2 flex items-center gap-1.5">
+              <i class="fa-solid fa-list-ol text-amber-500"></i> 作り方
+            </h4>
+            <template x-if="selectedRecipe.steps && selectedRecipe.steps.length">
+              <ol class="space-y-3">
+                <template x-for="(step, index) in selectedRecipe.steps" :key="index">
+                  <li class="flex gap-3">
+                    <span class="flex-shrink-0 w-6 h-6 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center" x-text="index + 1"></span>
+                    <p class="text-sm text-gray-700 leading-relaxed flex-1" x-text="step"></p>
+                  </li>
+                </template>
+              </ol>
+            </template>
+            <template x-if="!selectedRecipe.steps || selectedRecipe.steps.length === 0">
+              <p class="text-xs text-gray-400">このレシピの調理手順は登録されていません。</p>
+            </template>
+          </div>
+
+          <button
+            @click="toggleMenuSelection(selectedRecipe); selectedRecipe = null"
+            :class="isInMenu(selectedRecipe.id) ? 'bg-gray-100 text-gray-600' : 'bg-amber-500 text-white hover:bg-amber-600'"
+            class="w-full font-bold py-3 rounded-xl text-sm transition"
+          >
+            <span x-text="isInMenu(selectedRecipe.id) ? '献立から解除' : '＋ 献立に追加'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    function recipeApp() {
+      return {
+        activeTab: 'recipes',
+        searchKeyword: '',
+        filterTag: 'ALL',
+        isSearching: false,
+        showApiModal: false,
+        enableRakutenApi: false,
+        rakutenAppId: localStorage.getItem('rakuten_app_id') || '',
+        
+        // 我が家の初期レシピデータ
+        sampleRecipes: [
+          { id: 'h1', title: '特製むね肉チャーシュー', category: '主菜', cost: '約180円', isHome: false, isSample: true, ingredients: ['鶏胸肉 1枚', '醤油 大さじ2', 'みりん 大さじ2', '生姜 1かけ'], steps: ['鶏胸肉はフォークで数か所刺し、常温に戻す。', '鍋に醤油・みりん・生姜・水200mlを入れて煮立てる。', '鶏胸肉を入れ、落とし蓋をして弱火で10分煮る。', '火を止めてそのまま10分置き、粗熱が取れたら薄切りにする。', '煮汁を煮詰めてタレとしてかける。'], image: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=300' },
+          { id: 'h2', title: '豆腐と豆苗のこってりオイスター炒め', category: '主菜', cost: '約120円', isHome: false, isSample: true, ingredients: ['木綿豆腐 1丁', '豆苗 1パック', 'オイスターソース 小さじ2', 'ごま油 小さじ1'], steps: ['豆腐は水切りして一口大に切る。豆苗は根元を切って半分に切る。', 'フライパンにごま油を熱し、豆腐を焼き色がつくまで焼く。', '豆苗を加えてさっと炒め、オイスターソースで味を調える。'], image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300' },
+          { id: 'h3', title: '無限もやしナムル', category: '副菜', cost: '約40円', isHome: false, isSample: true, ingredients: ['もやし 1袋', 'ごま油 小さじ1', '鶏ガラスープの素 小さじ1', '白ごま 少々'], steps: ['もやしをさっと茹でて水気をよく切る。', 'ボウルにごま油・鶏ガラスープの素・白ごまを入れて混ぜる。', 'もやしを加えて和え、冷蔵庫で10分ほどなじませる。'], image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=300' },
+          { id: 'h4', title: 'キャベツと卵のふんわりスープ', category: '汁物', cost: '約60円', isHome: false, isSample: true, ingredients: ['キャベツ 2枚', '卵 1個', 'コンソメ 1個', '水 400ml'], steps: ['キャベツは一口大に切る。卵は溶いておく。', '鍋に水とコンソメを入れて沸かし、キャベツを3分煮る。', '溶き卵を細く回し入れ、ふんわり固まったら火を止める。'], image: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=300' },
+          { id: 'h5', title: '鶏むね肉の照り焼き', category: '主菜', cost: '約150円', isHome: false, isSample: true, ingredients: ['鶏胸肉 1枚', '片栗粉 大さじ1', '醤油 大さじ1.5', 'みりん 大さじ1.5', '砂糖 小さじ1'], steps: ['鶏胸肉は厚みを均一にし、片栗粉を薄くまぶす。', 'フライパンに油を熱し、鶏肉を両面こんがり焼く。', '醤油・みりん・砂糖を混ぜて加え、照りが出るまで煮絡める。', '食べやすく切って皿に盛る。'], image: 'https://images.unsplash.com/photo-1604908176997-125f25cc6f3d?w=300' },
+          { id: 'h6', title: '豚こまとキャベツの味噌炒め', category: '主菜', cost: '約180円', isHome: false, isSample: true, ingredients: ['豚こま切れ肉 150g', 'キャベツ 1/4個', '味噌 大さじ1', 'みりん 大さじ1', 'ごま油 小さじ1'], steps: ['キャベツはざく切りにする。', 'フライパンにごま油を熱し、豚肉を炒める。', 'キャベツを加えてしんなりするまで炒める。', '味噌とみりんを混ぜて回し入れ、全体に絡める。'], image: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=300' },
+          { id: 'h7', title: '厚揚げと大根の煮物', category: '主菜', cost: '約140円', isHome: false, isSample: true, ingredients: ['厚揚げ 1枚', '大根 1/4本', '醤油 大さじ2', 'みりん 大さじ2', 'だし汁 300ml'], steps: ['大根は1cm厚のいちょう切りにし、レンジで3分加熱する。', '厚揚げは熱湯をかけて油抜きし、一口大に切る。', '鍋にだし汁・醤油・みりんを入れて沸かす。', '大根と厚揚げを加え、落とし蓋をして弱火で15分煮る。'], image: 'https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=300' },
+          { id: 'h8', title: 'もやしとひき肉のキーマカレー', category: '主菜', cost: '約190円', isHome: false, isSample: true, ingredients: ['合いびき肉 150g', 'もやし 1袋', '玉ねぎ 1/2個', 'カレールー 2かけ', 'ご飯 2膳'], steps: ['玉ねぎはみじん切り、もやしは長さを半分に切る。', 'フライパンでひき肉と玉ねぎを炒め、色が変わったらもやしを加える。', '水150mlを加えて煮立て、カレールーを溶かす。', 'とろみがついたらご飯にかける。'], image: 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=300' },
+          { id: 'h9', title: '鮭のちゃんちゃん焼き', category: '主菜', cost: '約220円', isHome: false, isSample: true, ingredients: ['生鮭 2切れ', 'キャベツ 1/4個', '玉ねぎ 1/2個', '味噌 大さじ2', 'みりん 大さじ1', 'バター 10g'], steps: ['キャベツはざく切り、玉ねぎは薄切りにする。', '味噌とみりんを混ぜ合わせる。', 'フライパンにキャベツと玉ねぎを敷き、鮭をのせる。', '合わせ味噌を塗って蓋をし、中火で8分蒸し焼きにする。', '最後にバターをのせて溶かす。'], image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300' },
+          { id: 'h10', title: 'さば缶と大根の煮込み', category: '主菜', cost: '約160円', isHome: false, isSample: true, ingredients: ['さば水煮缶 1缶', '大根 1/4本', '醤油 大さじ2', 'みりん 大さじ2', '生姜 1かけ'], steps: ['大根は1cm厚に切り、レンジで5分加熱する。', '鍋に大根・さば缶（汁ごと）・醤油・みりん・生姜を入れる。', '水100mlを加えて落とし蓋をし、弱火で15分煮る。', '煮汁が少なくなったら火を止めて味をなじませる。'], image: 'https://images.unsplash.com/photo-1466637574441-749b8f19452f?w=300' },
+          { id: 'h11', title: '卵とトマトの中華炒め', category: '主菜', cost: '約100円', isHome: false, isSample: true, ingredients: ['卵 2個', 'トマト 1個', 'ごま油 小さじ1', '鶏ガラスープの素 小さじ1', '塩こしょう 少々'], steps: ['トマトはくし切りにする。卵は溶いて塩こしょうを混ぜる。', 'フライパンにごま油を熱し、溶き卵を炒めて半熟で取り出す。', 'トマトを炒め、鶏ガラスープの素を加える。', '卵を戻し入れてさっと混ぜる。'], image: 'https://images.unsplash.com/photo-1482049016688-2d3e1b311543?w=300' },
+          { id: 'h12', title: '鶏皮せんべいとキャベツ', category: '主菜', cost: '約90円', isHome: false, isSample: true, ingredients: ['鶏皮 100g', 'キャベツ 1/4個', '塩 少々', 'レモン汁 小さじ1'], steps: ['鶏皮は余分な脂を取り、フライパンで中火からじっくり焼く。', '両面がパリッとしたら塩をふり、取り出して一口大に切る。', 'キャベツはせん切りにして皿に盛る。', '鶏皮をのせ、レモン汁をかける。'], image: 'https://images.unsplash.com/photo-1559847844-5315695dadae?w=300' },
+          { id: 'h13', title: '豆腐ハンバーグ', category: '主菜', cost: '約170円', isHome: false, isSample: true, ingredients: ['木綿豆腐 1丁', '鶏ひき肉 200g', '玉ねぎ 1/2個', '片栗粉 大さじ2', 'ポン酢 大さじ2'], steps: ['豆腐は水切りし、玉ねぎはみじん切りにする。', 'ボウルにひき肉・豆腐・玉ねぎ・片栗粉を入れ、粘りが出るまで混ぜる。', '小判形に成形し、フライパンで両面を焼く。', '蓋をして弱火で5分蒸し焼きにし、ポン酢をかける。'], image: 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=300' },
+          { id: 'h14', title: '豚バラと白菜のミルフィーユ蒸し', category: '主菜', cost: '約240円', isHome: false, isSample: true, ingredients: ['豚バラ薄切り肉 200g', '白菜 1/4株', '酒 大さじ2', 'ポン酢 適量'], steps: ['白菜と豚バラ肉を交互に重ね、食べやすい幅に切る。', '鍋に並べて酒をふり、蓋をして中火で10分蒸す。', '白菜がしんなりしたら火を止める。', 'ポン酢をかけて食べる。'], image: 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=300' },
+          { id: 'h15', title: '鶏もも肉の塩唐揚げ', category: '主菜', cost: '約230円', isHome: false, isSample: true, ingredients: ['鶏もも肉 1枚', '片栗粉 大さじ3', '塩 小さじ1/2', 'にんにく 1かけ', '揚げ油 適量'], steps: ['鶏もも肉は一口大に切り、塩とすりおろしたにんにくを揉み込む。', '片栗粉をまぶす。', '170度の油で5分ほど揚げる。', '一度取り出して2分休ませ、再び1分揚げてカリッとさせる。'], image: 'https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=300' },
+          { id: 'h16', title: 'ツナとキャベツのパスタ', category: '主菜', cost: '約150円', isHome: false, isSample: true, ingredients: ['スパゲッティ 200g', 'ツナ缶 1缶', 'キャベツ 1/4個', 'にんにく 1かけ', '醤油 大さじ1'], steps: ['スパゲッティを表示時間どおり茹でる。', 'フライパンに油とにんにくを熱し、キャベツを炒める。', 'ツナを加えてさらに炒め、茹で汁お玉1杯を加える。', 'スパゲッティを加えて醤油で味を調える。'], image: 'https://images.unsplash.com/photo-1473093295043-cdd812d0e601?w=300' },
+          { id: 'h17', title: '納豆チャーハン', category: '主菜', cost: '約90円', isHome: false, isSample: true, ingredients: ['ご飯 2膳', '納豆 2パック', '卵 1個', 'ネギ 1/2本', 'ごま油 大さじ1'], steps: ['納豆は付属のタレと混ぜておく。ネギは小口切りにする。', 'フライパンにごま油を熱し、溶き卵を炒める。', 'ご飯を加えてほぐしながら炒める。', '納豆とネギを加え、さっと混ぜて火を止める。'], image: 'https://images.unsplash.com/photo-1512058564366-18510be2db19?w=300' },
+          { id: 'h18', title: '鶏むねとブロッコリーの甘酢炒め', category: '主菜', cost: '約170円', isHome: false, isSample: true, ingredients: ['鶏胸肉 1枚', 'ブロッコリー 1株', '酢 大さじ2', '砂糖 大さじ1', '醤油 大さじ1', '片栗粉 大さじ1'], steps: ['鶏胸肉は一口大に切り、片栗粉をまぶす。ブロッコリーは小房に分ける。', 'フライパンに油を熱し、鶏肉を焼く。', 'ブロッコリーを加えて炒め、水大さじ2を加えて蓋をし2分蒸す。', '酢・砂糖・醤油を混ぜて加え、全体に絡める。'], image: 'https://images.unsplash.com/photo-1585032226651-759b368d7246?w=300' },
+          { id: 'h19', title: 'キャベツと人参のコールスロー', category: '副菜', cost: '約50円', isHome: false, isSample: true, ingredients: ['キャベツ 1/4個', '人参 1/2本', '酢 大さじ1', '砂糖 小さじ1', 'マヨネーズ 大さじ2'], steps: ['キャベツと人参は細切りにする。', '塩少々をふって5分置き、水気を絞る。', '酢・砂糖・マヨネーズを混ぜ、野菜と和える。'], image: 'https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=300' },
+          { id: 'h20', title: 'きゅうりとちくわの酢の物', category: '副菜', cost: '約60円', isHome: false, isSample: true, ingredients: ['きゅうり 2本', 'ちくわ 2本', '酢 大さじ2', '砂糖 大さじ1', '塩 少々'], steps: ['きゅうりは薄切りにして塩をふり、5分置いて水気を絞る。', 'ちくわは斜め薄切りにする。', '酢と砂糖を混ぜ、きゅうりとちくわを和える。'], image: 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=300' },
+          { id: 'h21', title: 'ほうれん草のごま和え', category: '副菜', cost: '約70円', isHome: false, isSample: true, ingredients: ['ほうれん草 1束', 'すりごま 大さじ2', '醤油 大さじ1', '砂糖 小さじ1'], steps: ['ほうれん草を茹でて冷水に取り、水気を絞って4cm幅に切る。', 'すりごま・醤油・砂糖を混ぜる。', 'ほうれん草を加えて和える。'], image: 'https://images.unsplash.com/photo-1493770348161-369560ae357d?w=300' },
+          { id: 'h22', title: '大根とツナのサラダ', category: '副菜', cost: '約80円', isHome: false, isSample: true, ingredients: ['大根 1/4本', 'ツナ缶 1缶', 'マヨネーズ 大さじ2', '醤油 小さじ1'], steps: ['大根は細切りにし、塩少々をふって5分置く。', '水気をしっかり絞る。', 'ツナ・マヨネーズ・醤油を加えて和える。'], image: 'https://images.unsplash.com/photo-1504754524776-8f4f37790ca0?w=300' },
+          { id: 'h23', title: 'ピーマンとちくわのきんぴら', category: '副菜', cost: '約60円', isHome: false, isSample: true, ingredients: ['ピーマン 3個', 'ちくわ 2本', 'ごま油 小さじ1', '醤油 大さじ1', 'みりん 大さじ1'], steps: ['ピーマンとちくわは細切りにする。', 'フライパンにごま油を熱し、ピーマンを炒める。', 'ちくわを加え、醤油とみりんを回し入れて炒め合わせる。'], image: 'https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=300' },
+          { id: 'h24', title: 'かぼちゃの煮物', category: '副菜', cost: '約70円', isHome: false, isSample: true, ingredients: ['かぼちゃ 1/4個', 'だし汁 200ml', '醤油 大さじ1', 'みりん 大さじ1', '砂糖 小さじ1'], steps: ['かぼちゃは種を取り、一口大に切る。', '鍋にだし汁・醤油・みりん・砂糖を入れて沸かす。', 'かぼちゃを皮を下にして並べ、落とし蓋をして弱火で12分煮る。', '火を止めてそのまま冷まし、味をなじませる。'], image: 'https://images.unsplash.com/photo-1499028344343-cd173ffc68a9?w=300' },
+          { id: 'h25', title: '豆腐とわかめの冷奴', category: '副菜', cost: '約50円', isHome: false, isSample: true, ingredients: ['絹ごし豆腐 1丁', '乾燥わかめ 小さじ1', '醤油 大さじ1', 'かつお節 少々'], steps: ['わかめを水で戻し、水気を切る。', '豆腐を冷たいうちに皿に盛る。', 'わかめとかつお節をのせ、醤油をかける。'], image: 'https://images.unsplash.com/photo-1553621042-f6e147245754?w=300' },
+          { id: 'h26', title: 'ブロッコリーのガーリック炒め', category: '副菜', cost: '約80円', isHome: false, isSample: true, ingredients: ['ブロッコリー 1株', 'にんにく 1かけ', 'オリーブオイル 大さじ1', '塩こしょう 少々'], steps: ['ブロッコリーは小房に分け、2分茹でる。', 'フライパンにオリーブオイルとみじん切りのにんにくを熱する。', 'ブロッコリーを加えて炒め、塩こしょうで味を調える。'], image: 'https://images.unsplash.com/photo-1529042410759-befb1204b468?w=300' },
+          { id: 'h27', title: '豆腐とわかめの味噌汁', category: '汁物', cost: '約40円', isHome: false, isSample: true, ingredients: ['絹ごし豆腐 1/2丁', '乾燥わかめ 小さじ1', '味噌 大さじ1.5', 'だし汁 400ml'], steps: ['豆腐は1.5cm角に切る。わかめは水で戻す。', '鍋にだし汁を沸かし、豆腐を入れて2分煮る。', '火を弱めて味噌を溶き入れ、わかめを加えて火を止める。'], image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=300' },
+          { id: 'h28', title: '大根と油揚げの味噌汁', category: '汁物', cost: '約50円', isHome: false, isSample: true, ingredients: ['大根 1/8本', '油揚げ 1枚', '味噌 大さじ1.5', 'だし汁 400ml'], steps: ['大根は短冊切り、油揚げは熱湯をかけて細切りにする。', '鍋にだし汁と大根を入れて5分煮る。', '油揚げを加えて2分煮て、味噌を溶き入れる。'], image: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=300' },
+          { id: 'h29', title: 'トマトと卵の中華スープ', category: '汁物', cost: '約60円', isHome: false, isSample: true, ingredients: ['トマト 1個', '卵 1個', '鶏ガラスープの素 小さじ1', 'ごま油 少々', '水 400ml'], steps: ['トマトは一口大に切る。卵は溶いておく。', '鍋に水と鶏ガラスープの素を入れて沸かし、トマトを2分煮る。', '溶き卵を回し入れ、火が通ったらごま油を垂らす。'], image: 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=300' },
+          { id: 'h30', title: 'もやしと豆腐のとろみスープ', category: '汁物', cost: '約50円', isHome: false, isSample: true, ingredients: ['もやし 1/2袋', '絹ごし豆腐 1/2丁', '鶏ガラスープの素 小さじ1', '片栗粉 小さじ2', '水 400ml'], steps: ['豆腐は1.5cm角に切る。', '鍋に水と鶏ガラスープの素を入れて沸かし、もやしと豆腐を煮る。', '水溶き片栗粉を加えてとろみをつけ、ごま油を垂らす。'], image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=300' }
+        ],
+
+        homeRecipes: [
+          { id: 'f1', title: '鮭or肉のホイル焼き', category: '主菜', cost: '我が家の定番', isHome: true, ingredients: ['鮭（骨取りサーモン・骨取り銀鮭など）', '肉（豚コマ・豚しゃぶ・豚ロースなど）', '玉ねぎ', 'きのこ類（ぶなしめじ・エノキ）', 'チューブバター'], steps: ['玉ねぎは薄切り、きのこ類は食べやすい大きさにほぐす。', 'アルミホイルに玉ねぎ・きのこ・鮭または肉をのせ、チューブバターを適量絞る。', 'ホイルを包んでフライパンに並べ、蓋をして中火で10〜12分蒸し焼きにする。', 'ホイルを開き、中まで火が通っていることを確認する。'], image: 'https://images.unsplash.com/photo-1580476262798-bddd9f4b7369?w=600&q=80' },
+          { id: 'f2', title: '鶏の唐揚げ', category: '主菜', cost: '我が家の定番', isHome: true, ingredients: ['鶏肉（ムネ・モモ・ササミなど）', '白だし', '生姜チューブ', 'ニンニクチューブ', '醤油', '片栗粉 or コーンスターチ', '揚げ油'], steps: ['朝のうちに仕込む。', 'タッパーにカットした鶏肉を入れ、白だし・生姜チューブ・ニンニクチューブ・醤油を適量加える。', '蓋をしてしっかり振り、味が染みるようにする。', '夜に片栗粉またはコーンスターチをまぶして揚げる。'], image: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=600&q=80' },
+          { id: 'f3', title: 'コロッケ', category: '主菜', cost: '我が家の定番', isHome: true, ingredients: ['ジャガイモ 5〜6個', '人参', '玉ねぎ', '豚ひき肉', '醤油', '塩コショウ', 'ソース', '小麦粉', '卵', 'パン粉', '揚げ油'], steps: ['ジャガイモの皮を剥いて蒸す。', '温かいうちに潰しておく。', '人参・玉ねぎをみじん切りにし、豚ひき肉と一緒に炒める。', '炒めた野菜とひき肉を潰したジャガイモに混ぜる。', '醤油・塩コショウ・ソースで味付けする。', '形を整える。', '小麦粉・卵・パン粉の順に付けて揚げる。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Korokke.jpg/500px-Korokke.jpg' },
+          { id: 'f4', title: 'おくずかけ', category: '汁物', cost: '我が家の定番', isHome: true, ingredients: ['人参', 'エノキ', '椎茸', 'ジャガイモ', '白滝', 'まめふ', '豆腐', '片栗粉', '麺つゆ'], steps: ['野菜ときのこを食べやすい大きさに切り、白滝は下茹でする。', '鍋に麺つゆと水を入れて煮立て、人参・ジャガイモ・きのこを柔らかくなるまで煮る。', '白滝・まめふ・豆腐を加えて温める。', '水溶き片栗粉でとろみをつける。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4a/Kenchinjiru_soy_sauce_flavor_2009.JPG/500px-Kenchinjiru_soy_sauce_flavor_2009.JPG' },
+          { id: 'f5', title: '豚汁', category: '汁物', cost: '我が家の定番', isHome: true, ingredients: ['人参', '大根', '芋（ジャガイモ or さつまいも）', 'ゴボウ', 'ネギ', 'きのこ類（ぶなしめじ・エノキ）', 'コンニャク', '豚肉', '豆腐', '味噌', 'だし汁'], steps: ['野菜・きのこ・コンニャクを食べやすい大きさに切る。', '鍋で豚肉を炒め、野菜類を加えて炒め合わせる。', 'だし汁を加え、根菜が柔らかくなるまで煮る。', '味噌を溶き入れ、豆腐とネギを加えてひと煮立ちさせる。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Japanese_tonjiru_2014.jpg/500px-Japanese_tonjiru_2014.jpg' },
+          { id: 'f6', title: 'ハムコライ', category: '主菜', cost: '我が家の定番', isHome: true, ingredients: ['ロースハム', 'スライスチーズ', '卵', 'パン粉', '小麦粉', '揚げ油'], steps: ['ハムとハムの間に半分に切ったスライスチーズを挟む。', '小麦粉・卵・パン粉の順に付けて揚げる。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e3/%E3%83%8F%E3%83%A0%E3%82%AB%E3%83%84.jpg/500px-%E3%83%8F%E3%83%A0%E3%82%AB%E3%83%84.jpg' },
+          { id: 'f7', title: '麻婆豆腐', category: '主菜', cost: '我が家の定番', isHome: true, ingredients: ['人参', 'ニラ', 'エノキ', '豚ひき肉', '木綿豆腐', '麻婆豆腐の素（甘口）'], steps: ['野菜類はみじん切りにする。', 'ひき肉と野菜を炒める。', '麻婆豆腐の素の表示どおりに水を入れ、豆腐も入れる。', 'あとは麻婆豆腐の素の表示どおりに仕上げる。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Authentic_Mapo_Tofu.jpg/500px-Authentic_Mapo_Tofu.jpg' },
+          { id: 'f8', title: '我が家の味噌汁', category: '汁物', cost: '我が家の定番', isHome: true, ingredients: ['キャベツ・エノキ・溶き卵', '人参・白菜・豆腐', 'ワカメ・豆腐・まめふ', '白菜・エノキ・溶き卵', 'ニラ・溶き卵・豆腐', '味噌', 'だし汁'], steps: ['5つの組み合わせから、その日の味噌汁を選ぶ。', '具材を食べやすい大きさに切り、火の通りにくいものからだし汁で煮る。', '味噌を溶き入れ、溶き卵を使う場合は最後に回し入れて火を止める。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Miso_Soup_001.jpg/500px-Miso_Soup_001.jpg' },
+          { id: 'f9', title: '我が家の雲呑スープ', category: '汁物', cost: '我が家の定番', isHome: true, ingredients: ['雲呑の皮', '白菜', '人参', 'エノキ', 'ネギ', '溶き卵', '鶏がらスープ', '醤油'], steps: ['白菜・人参・エノキ・ネギを食べやすい大きさに切る。', '鍋に水と鶏がらスープを入れて沸かし、具材を煮る。', '雲呑の皮を加えて煮て、醤油で味を調える。', '溶き卵を回し入れて火を止める。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/FOOD_Wonton_Soup.jpg/500px-FOOD_Wonton_Soup.jpg' },
+          { id: 'f10', title: '我が家のポトフ', category: '汁物', cost: '我が家の定番', isHome: true, ingredients: ['人参', '玉ねぎ', 'キャベツ', 'ジャガイモ', 'ベーコン or ウィンナー', 'ブロッコリー', 'コンソメ'], steps: ['野菜を食べやすい大きさに切る。', '鍋に水とコンソメ、人参・玉ねぎ・ジャガイモを入れて煮る。', 'キャベツ・ベーコンまたはウィンナーを加えてさらに煮る。', '最後にブロッコリーを加えてさっと煮る。'], image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/51/Pot-au-feu2.jpg/500px-Pot-au-feu2.jpg' }
+        ],
+
+        netRecipes: [],
+        selectedMenu: JSON.parse(localStorage.getItem('selected_menu') || '[]'),
+        shoppingList: [],
+        selectedRecipe: null,
+
+        init() {
+          // 初期化時にローカルストレージ確認
+        },
+
+        get allRecipes() {
+          return [...this.homeRecipes, ...this.sampleRecipes, ...this.netRecipes];
+        },
+
+        get filteredRecipes() {
+          return this.allRecipes.filter(r => {
+            if (this.filterTag === 'HOME') return r.isHome;
+            if (this.filterTag === 'SAMPLE') return r.isSample;
+            if (this.filterTag === 'NET') return !r.isHome && !r.isSample;
+            if (this.filterTag === '節約') return parseInt(r.cost.replace(/[^0-9]/g, '')) <= 150;
+            return true;
+          });
+        },
+
+        async searchRecipes() {
+          if (!this.searchKeyword) return;
+          this.isSearching = true;
+
+          // 楽天API呼び出し（IDが設定されている場合）
+          if (this.enableRakutenApi && this.rakutenAppId) {
+            try {
+              const res = await fetch(`https://app.rakuten.co.jp/services/api/Recipe/CategoryRanking/20170426?applicationId=${this.rakutenAppId}&keyword=${encodeURIComponent(this.searchKeyword)}`);
+              const data = await res.json();
+              if (data.result) {
+                this.netRecipes = data.result.map(item => ({
+                  id: 'net_' + item.recipeId,
+                  title: item.recipeTitle,
+                  category: 'ネット人気',
+                  cost: item.recipeCost || '節約価格',
+                  isHome: false,
+                  ingredients: item.recipeMaterial || [],
+                  steps: item.recipeInstructions || [],
+                  image: item.mediumImageUrl
+                }));
+              }
+            } catch (e) {
+              console.error("楽天APIエラー", e);
+            }
+          } else {
+            // モック検索（API未設定時のサンプル動作）
+            setTimeout(() => {
+              this.netRecipes = [
+                { id: 'n1', title: `ネットで話題の${this.searchKeyword}節約レシピ`, category: '主菜', cost: '約150円', isHome: false, ingredients: [this.searchKeyword, '醤油', 'ごま油'], steps: ['材料を食べやすい大きさに切る。', 'フライパンにごま油を熱し、材料を炒める。', '醤油で味を調えて完成。'], image: 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=300' }
+              ];
+            }, 500);
+          }
+          this.isSearching = false;
+        },
+
+        openRecipe(recipe) {
+          this.selectedRecipe = recipe;
+        },
+
+        toggleMenuSelection(recipe) {
+          const index = this.selectedMenu.findIndex(item => item.id === recipe.id);
+          if (index > -1) {
+            this.selectedMenu.splice(index, 1);
+          } else {
+            this.selectedMenu.push(recipe);
+          }
+          this.saveState();
+        },
+
+        isInMenu(id) {
+          return this.selectedMenu.some(item => item.id === id);
+        },
+
+        generateRandomMenu() {
+          const mains = this.allRecipes.filter(r => r.category === '主菜');
+          const sides = this.allRecipes.filter(r => r.category === '副菜');
+          const soups = this.allRecipes.filter(r => r.category === '汁物');
+
+          this.selectedMenu = [];
+          if (mains.length) this.selectedMenu.push(mains[Math.floor(Math.random() * mains.length)]);
+          if (sides.length) this.selectedMenu.push(sides[Math.floor(Math.random() * sides.length)]);
+          if (soups.length) this.selectedMenu.push(soups[Math.floor(Math.random() * soups.length)]);
+
+          this.activeTab = 'menu';
+          this.saveState();
+        },
+
+        generateShoppingList() {
+          const rawIngredients = [];
+          this.selectedMenu.forEach(item => {
+            rawIngredients.push(...item.ingredients);
+          });
+          
+          // 重複の簡易まとめ（同じ文字列を統合）
+          const uniqueMap = {};
+          rawIngredients.forEach(ing => {
+            uniqueMap[ing] = (uniqueMap[ing] || 0) + 1;
+          });
+
+          this.shoppingList = Object.keys(uniqueMap).map(ing => ({
+            name: uniqueMap[ing] > 1 ? `${ing} (×${uniqueMap[ing]})` : ing,
+            checked: false
+          }));
+        },
+
+        saveApiId() {
+          localStorage.setItem('rakuten_app_id', this.rakutenAppId);
+          this.showApiModal = false;
+        },
+
+        saveState() {
+          localStorage.setItem('selected_menu', JSON.stringify(this.selectedMenu));
+        }
+      }
+    }
+  </script>
+</body>
+</html>
