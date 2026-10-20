@@ -30,13 +30,24 @@
     <!-- 検索バー -->
     <section class="bg-white p-3 rounded-2xl shadow-sm border border-amber-100">
       <div class="flex gap-2">
-        <input 
-          type="text" 
-          x-model="searchKeyword" 
-          @keyup.enter="searchRecipes()"
-          placeholder="食材を入力 (例: 胸肉, 豆腐, もやし)" 
-          class="flex-1 bg-gray-50 border border-gray-200 text-sm rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
-        >
+        <div class="relative flex-1">
+          <input 
+            type="text" 
+            x-model="searchKeyword" 
+            @keyup.enter="searchRecipes()"
+            placeholder="食材を入力 (例: 胸肉, 豆腐, もやし)" 
+            class="w-full bg-gray-50 border border-gray-200 text-sm rounded-xl pl-3 pr-9 py-2.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+          >
+          <button 
+            x-show="searchKeyword" 
+            x-cloak
+            @click="clearSearch()" 
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+            aria-label="検索をクリア"
+          >
+            <i class="fa-solid fa-circle-xmark"></i>
+          </button>
+        </div>
         <button 
           @click="searchRecipes()" 
           class="bg-amber-500 text-white px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-amber-600 transition flex items-center justify-center min-w-[60px]"
@@ -45,6 +56,9 @@
           <span x-show="isSearching" x-cloak><i class="fa-solid fa-spinner animate-spin"></i></span>
         </button>
       </div>
+      <p x-show="searchKeyword.trim()" x-cloak class="text-xs text-gray-500 mt-2 px-1">
+        「<span x-text="searchKeyword.trim()"></span>」を含むレシピ: <span class="font-bold text-amber-600" x-text="filteredRecipes.length"></span>件
+      </p>
     </section>
 
     <!-- クイックアクション：献立ガチャ -->
@@ -127,6 +141,12 @@
               </button>
             </div>
           </div>
+        </div>
+      </template>
+
+      <template x-if="filteredRecipes.length === 0">
+        <div class="text-center py-10 bg-white rounded-2xl border border-dashed text-gray-400 text-xs">
+          条件に合うレシピが見つかりませんでした。<br>別の食材名で検索してみてください。
         </div>
       </template>
     </div>
@@ -348,48 +368,52 @@
         },
 
         get filteredRecipes() {
+          const tokens = this.searchKeyword.trim().toLowerCase().split(/\s+/).filter(Boolean);
           return this.allRecipes.filter(r => {
-            if (this.filterTag === 'HOME') return r.isHome;
-            if (this.filterTag === 'SAMPLE') return r.isSample;
-            if (this.filterTag === 'NET') return !r.isHome && !r.isSample;
-            if (this.filterTag === '節約') return parseInt(r.cost.replace(/[^0-9]/g, '')) <= 150;
+            const isNet = !r.isHome && !r.isSample;
+            if (this.filterTag === 'HOME' && !r.isHome) return false;
+            if (this.filterTag === 'SAMPLE' && !r.isSample) return false;
+            if (this.filterTag === 'NET' && !isNet) return false;
+            if (this.filterTag === '節約' && !(parseInt(r.cost.replace(/[^0-9]/g, '')) <= 150)) return false;
+            if (tokens.length && !isNet) {
+              const text = [r.title, r.category, ...(r.ingredients || [])].join(' ').toLowerCase();
+              if (!tokens.every(token => text.includes(token))) return false;
+            }
             return true;
           });
         },
 
         async searchRecipes() {
-          if (!this.searchKeyword) return;
-          this.isSearching = true;
+          this.activeTab = 'recipes';
+          const keyword = this.searchKeyword.trim();
+          if (!keyword || !this.enableRakutenApi || !this.rakutenAppId) return;
 
-          // 楽天API呼び出し（IDが設定されている場合）
-          if (this.enableRakutenApi && this.rakutenAppId) {
-            try {
-              const res = await fetch(`https://app.rakuten.co.jp/services/api/Recipe/CategoryRanking/20170426?applicationId=${this.rakutenAppId}&keyword=${encodeURIComponent(this.searchKeyword)}`);
-              const data = await res.json();
-              if (data.result) {
-                this.netRecipes = data.result.map(item => ({
-                  id: 'net_' + item.recipeId,
-                  title: item.recipeTitle,
-                  category: 'ネット人気',
-                  cost: item.recipeCost || '節約価格',
-                  isHome: false,
-                  ingredients: item.recipeMaterial || [],
-                  steps: item.recipeInstructions || [],
-                  image: item.mediumImageUrl
-                }));
-              }
-            } catch (e) {
-              console.error("楽天APIエラー", e);
-            }
-          } else {
-            // モック検索（API未設定時のサンプル動作）
-            setTimeout(() => {
-              this.netRecipes = [
-                { id: 'n1', title: `ネットで話題の${this.searchKeyword}節約レシピ`, category: '主菜', cost: '約150円', isHome: false, ingredients: [this.searchKeyword, '醤油', 'ごま油'], steps: ['材料を食べやすい大きさに切る。', 'フライパンにごま油を熱し、材料を炒める。', '醤油で味を調えて完成。'], image: 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=300' }
-              ];
-            }, 500);
+          this.isSearching = true;
+          try {
+            const res = await fetch(`https://app.rakuten.co.jp/services/api/Recipe/CategoryRanking/20170426?applicationId=${this.rakutenAppId}&keyword=${encodeURIComponent(keyword)}`);
+            const data = await res.json();
+            this.netRecipes = data.result ? data.result.map(item => ({
+              id: 'net_' + item.recipeId,
+              title: item.recipeTitle,
+              category: 'ネット人気',
+              cost: item.recipeCost || '節約価格',
+              isHome: false,
+              isNet: true,
+              ingredients: item.recipeMaterial || [],
+              steps: item.recipeInstructions || [],
+              image: item.mediumImageUrl
+            })) : [];
+          } catch (e) {
+            console.error("楽天APIエラー", e);
+            this.netRecipes = [];
+          } finally {
+            this.isSearching = false;
           }
-          this.isSearching = false;
+        },
+
+        clearSearch() {
+          this.searchKeyword = '';
+          this.netRecipes = [];
         },
 
         openRecipe(recipe) {
